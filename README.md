@@ -42,11 +42,13 @@ That command:
 - Adaptive ring labels in meters (auto range fit)
 - Collision-avoidance layout to reduce overlapping device dots
 - Click any dot or legend row for full device details
+- `Ferdus` apartment preset (default) to keep estimates in realistic apartment-scale ranges
 - Calibration sliders:
   - path-loss exponent
   - reference RSSI at 1 meter
   - RTT gain
   - RTT exponent
+  - RTT delta cap
 
 ## Optional flags
 

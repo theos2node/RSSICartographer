@@ -41,17 +41,20 @@ DEFAULT_PORT = 8765
 DEFAULT_REFRESH_SECONDS = 16
 DEFAULT_MAX_SCAN_HOSTS = 512
 MAX_PORT_PROBES = 40
+DEFAULT_CALIBRATION_PROFILE = "ferdus_apartment_wifi_v1"
 
 # Exponential smoothing factors used between scans.
 RTT_EWMA_ALPHA = 0.35
 DIST_EWMA_ALPHA = 0.40
 
 DEFAULT_DISTANCE_MODEL = {
-    "ref_rssi_1m_dbm": -52.0,
-    "path_loss_exponent": 2.2,
-    "rtt_gain_m_per_ms_pow": 28.0,
-    "rtt_exponent": 1.30,
-    "max_distance_m": 250.0,
+    # Ferdus profile: tuned for apartment-scale Wi-Fi environments.
+    "ref_rssi_1m_dbm": -49.0,
+    "path_loss_exponent": 2.7,
+    "rtt_gain_m_per_ms_pow": 3.2,
+    "rtt_exponent": 1.12,
+    "rtt_delta_cap_ms": 6.0,
+    "max_distance_m": 65.0,
 }
 
 
@@ -396,12 +399,14 @@ def estimate_distance_from_rtt(
         return None
 
     delta = max(0.0, latency_ms - baseline_ms)
+    delta_cap_ms = max(0.5, model.get("rtt_delta_cap_ms", 6.0))
+    bounded_delta = min(delta, delta_cap_ms)
     anchor = anchor_distance_m if anchor_distance_m is not None else 3.0
     gain = model["rtt_gain_m_per_ms_pow"]
     exponent = model["rtt_exponent"]
 
-    # Small floor keeps nearby hosts off the exact center.
-    estimate = anchor + (max(0.05, delta) ** exponent) * gain
+    # Cap RTT delta to avoid runaway distances from transient queueing jitter.
+    estimate = anchor + (max(0.05, bounded_delta) ** exponent) * gain
     estimate = max(0.8, min(model["max_distance_m"], estimate))
     return round(estimate, 2)
 
@@ -581,12 +586,13 @@ def build_payload(max_hosts: int) -> dict[str, Any]:
             "battery": battery,
         },
         "distance_model": {
-            "name": "hybrid_rssi_rtt_heuristic",
+            "name": DEFAULT_CALIBRATION_PROFILE,
             "rtt_baseline_ms": rtt_baseline_ms,
             "gateway_anchor_m": wifi_anchor_m,
             "calibration_defaults": model,
             "notes": [
                 "RSSI uses log-distance path-loss model with configurable n and reference RSSI.",
+                "Ferdus apartment profile caps RTT delta to avoid unrealistic long-range spikes.",
                 "RTT-derived ranges are relative estimates and should be treated as low-confidence without FTM/UWB anchors.",
                 "Highest practical accuracy for consumer indoor ranging is currently achieved with IEEE 802.11mc/802.11az FTM and IEEE 802.15.4z UWB.",
             ],
@@ -1051,7 +1057,7 @@ def generate_html(initial_state: dict[str, Any]) -> str:
       <div class="chip-row" id="chips"></div>
 
       <div class="cal">
-        <h2>Calibration</h2>
+        <h2>Ferdus Calibration (Wi-Fi)</h2>
         <div class="control">
           <label>
             <span>Path-Loss Exponent (n)</span>
@@ -1071,14 +1077,24 @@ def generate_html(initial_state: dict[str, Any]) -> str:
             <span>RTT Gain</span>
             <span id="rttGainVal"></span>
           </label>
-          <input id="rttGainSlider" type="range" min="8" max="70" step="1" />
+          <input id="rttGainSlider" type="range" min="1.0" max="15.0" step="0.1" />
         </div>
         <div class="control">
           <label>
             <span>RTT Exponent</span>
             <span id="rttExpVal"></span>
           </label>
-          <input id="rttExpSlider" type="range" min="0.8" max="1.9" step="0.05" />
+          <input id="rttExpSlider" type="range" min="0.8" max="1.6" step="0.01" />
+        </div>
+        <div class="control">
+          <label>
+            <span>RTT Delta Cap (ms)</span>
+            <span id="rttDeltaCapVal"></span>
+          </label>
+          <input id="rttDeltaCapSlider" type="range" min="1.0" max="12.0" step="0.1" />
+        </div>
+        <div class="zoom">
+          <button id="presetFerdus" title="Apply Ferdus apartment defaults">Use Ferdus Preset</button>
         </div>
       </div>
 
@@ -1118,10 +1134,13 @@ def generate_html(initial_state: dict[str, Any]) -> str:
     const rssiRefSlider = document.getElementById('rssiRefSlider');
     const rttGainSlider = document.getElementById('rttGainSlider');
     const rttExpSlider = document.getElementById('rttExpSlider');
+    const rttDeltaCapSlider = document.getElementById('rttDeltaCapSlider');
     const pathLossVal = document.getElementById('pathLossVal');
     const rssiRefVal = document.getElementById('rssiRefVal');
     const rttGainVal = document.getElementById('rttGainVal');
     const rttExpVal = document.getElementById('rttExpVal');
+    const rttDeltaCapVal = document.getElementById('rttDeltaCapVal');
+    const presetFerdusBtn = document.getElementById('presetFerdus');
 
     const zoomInBtn = document.getElementById('zoomIn');
     const zoomOutBtn = document.getElementById('zoomOut');
@@ -1143,11 +1162,12 @@ def generate_html(initial_state: dict[str, Any]) -> str:
       fetching: false,
       calibrationInitialized: false,
       calibration: {
-        ref_rssi_1m_dbm: -52,
-        path_loss_exponent: 2.2,
-        rtt_gain_m_per_ms_pow: 28,
-        rtt_exponent: 1.30,
-        max_distance_m: 250,
+        ref_rssi_1m_dbm: -49,
+        path_loss_exponent: 2.7,
+        rtt_gain_m_per_ms_pow: 3.2,
+        rtt_exponent: 1.12,
+        rtt_delta_cap_ms: 6.0,
+        max_distance_m: 65,
       }
     };
 
@@ -1260,7 +1280,8 @@ def generate_html(initial_state: dict[str, Any]) -> str:
       }
 
       const delta = Math.max(0, latency - baseline);
-      const estimate = anchor + Math.pow(Math.max(0.05, delta), RADAR.calibration.rtt_exponent) * RADAR.calibration.rtt_gain_m_per_ms_pow;
+      const boundedDelta = Math.min(delta, Math.max(0.5, RADAR.calibration.rtt_delta_cap_ms));
+      const estimate = anchor + Math.pow(Math.max(0.05, boundedDelta), RADAR.calibration.rtt_exponent) * RADAR.calibration.rtt_gain_m_per_ms_pow;
       return clamp(estimate, 0.8, RADAR.calibration.max_distance_m);
     }
 
@@ -1272,6 +1293,7 @@ def generate_html(initial_state: dict[str, Any]) -> str:
       if (Number.isFinite(toNum(defaults.path_loss_exponent))) RADAR.calibration.path_loss_exponent = Number(defaults.path_loss_exponent);
       if (Number.isFinite(toNum(defaults.rtt_gain_m_per_ms_pow))) RADAR.calibration.rtt_gain_m_per_ms_pow = Number(defaults.rtt_gain_m_per_ms_pow);
       if (Number.isFinite(toNum(defaults.rtt_exponent))) RADAR.calibration.rtt_exponent = Number(defaults.rtt_exponent);
+      if (Number.isFinite(toNum(defaults.rtt_delta_cap_ms))) RADAR.calibration.rtt_delta_cap_ms = Number(defaults.rtt_delta_cap_ms);
       if (Number.isFinite(toNum(defaults.max_distance_m))) RADAR.calibration.max_distance_m = Number(defaults.max_distance_m);
 
       RADAR.calibrationInitialized = true;
@@ -1283,11 +1305,24 @@ def generate_html(initial_state: dict[str, Any]) -> str:
       rssiRefSlider.value = String(RADAR.calibration.ref_rssi_1m_dbm);
       rttGainSlider.value = String(RADAR.calibration.rtt_gain_m_per_ms_pow);
       rttExpSlider.value = String(RADAR.calibration.rtt_exponent);
+      rttDeltaCapSlider.value = String(RADAR.calibration.rtt_delta_cap_ms);
 
       pathLossVal.textContent = RADAR.calibration.path_loss_exponent.toFixed(2);
       rssiRefVal.textContent = `${RADAR.calibration.ref_rssi_1m_dbm.toFixed(0)} dBm`;
-      rttGainVal.textContent = RADAR.calibration.rtt_gain_m_per_ms_pow.toFixed(0);
+      rttGainVal.textContent = RADAR.calibration.rtt_gain_m_per_ms_pow.toFixed(2);
       rttExpVal.textContent = RADAR.calibration.rtt_exponent.toFixed(2);
+      rttDeltaCapVal.textContent = `${RADAR.calibration.rtt_delta_cap_ms.toFixed(1)} ms`;
+    }
+
+    function applyFerdusPreset() {
+      RADAR.calibration.ref_rssi_1m_dbm = -49.0;
+      RADAR.calibration.path_loss_exponent = 2.7;
+      RADAR.calibration.rtt_gain_m_per_ms_pow = 3.2;
+      RADAR.calibration.rtt_exponent = 1.12;
+      RADAR.calibration.rtt_delta_cap_ms = 6.0;
+      RADAR.calibration.max_distance_m = 65.0;
+      syncCalibrationControls();
+      markCalibrationChanged();
     }
 
     function markCalibrationChanged() {
@@ -1319,6 +1354,16 @@ def generate_html(initial_state: dict[str, Any]) -> str:
       RADAR.calibration.rtt_exponent = Number(rttExpSlider.value);
       syncCalibrationControls();
       markCalibrationChanged();
+    });
+
+    rttDeltaCapSlider.addEventListener('input', () => {
+      RADAR.calibration.rtt_delta_cap_ms = Number(rttDeltaCapSlider.value);
+      syncCalibrationControls();
+      markCalibrationChanged();
+    });
+
+    presetFerdusBtn.addEventListener('click', () => {
+      applyFerdusPreset();
     });
 
     function recomputeDerivedDevices() {
@@ -1691,7 +1736,7 @@ def generate_html(initial_state: dict[str, Any]) -> str:
 
       statusLineEl.textContent = scan.last_error
         ? `Scan warning: ${scan.last_error}`
-        : 'Live network radar (auto-updating)';
+        : 'Live network radar (auto-updating, Ferdus calibration)';
 
       const chips = [];
       const wifi = data.sensors?.wifi || {};
@@ -1773,7 +1818,7 @@ def generate_html(initial_state: dict[str, Any]) -> str:
         `Samples: <b>${esc(selected.latency_samples || 0)}</b><br>`,
         `Gateway Node: <b>${selected.is_gateway ? 'yes' : 'no'}</b><br>`,
         `Last Seen: <b>${esc(selected.last_seen || 'unknown')}</b><br>`,
-        `<br><span class="warn">Calibration:</span> Path-loss n=${RADAR.calibration.path_loss_exponent.toFixed(2)}, RSSI@1m=${RADAR.calibration.ref_rssi_1m_dbm.toFixed(0)} dBm, RTT gain=${RADAR.calibration.rtt_gain_m_per_ms_pow.toFixed(0)}, RTT exp=${RADAR.calibration.rtt_exponent.toFixed(2)}.`
+        `<br><span class="warn">Calibration:</span> Ferdus profile active. Path-loss n=${RADAR.calibration.path_loss_exponent.toFixed(2)}, RSSI@1m=${RADAR.calibration.ref_rssi_1m_dbm.toFixed(0)} dBm, RTT gain=${RADAR.calibration.rtt_gain_m_per_ms_pow.toFixed(2)}, RTT exp=${RADAR.calibration.rtt_exponent.toFixed(2)}, RTT delta cap=${RADAR.calibration.rtt_delta_cap_ms.toFixed(1)} ms.`
       ];
 
       inspectorEl.innerHTML = lines.join('');
