@@ -1,56 +1,50 @@
 # RSSI Cartographer
 
-`RSSI Cartographer` is a lightweight macOS live radar mapper for your local network.
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
+[![Platform: macOS](https://img.shields.io/badge/Platform-macOS-111111)](https://www.apple.com/macos/)
+[![Runtime: Python 3](https://img.shields.io/badge/Runtime-Python%203-blue)](https://www.python.org/)
 
-It captures available MacBook sensor/network signals (Wi-Fi, Bluetooth snapshot, battery + interface info), scans your local subnet for reachable devices, and renders a live-updating 2D radar map in the browser.
+A lightweight, live-updating Wi-Fi radar map for local-network device discovery on macOS.
 
-## One-command run (download + launch)
+`RSSI Cartographer` scans your LAN, estimates relative device distance, and renders an interactive 2D radar with zoom, ring labels, collision-aware device layout, and click-to-inspect details.
+
+## Quick Start
+
+### One command (download + run)
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos2node/RSSICartographer/main/bootstrap.sh)"
 ```
 
-## One-command run (inside cloned repo)
+### Local run (inside cloned repo)
 
 ```bash
 ./run.sh
 ```
 
-That command:
+## What You Get
 
-1. Runs an initial local subnet scan.
-2. Collects available local sensor snapshots.
-3. Starts a tiny local web server and background rescans.
-4. Opens your browser to a radar map that updates automatically.
+- Live radar with auto-refreshing network scan state
+- Adaptive meter rings with auto-fit range scaling
+- Manual zoom controls (`+`, `Auto`, `-`, and mouse wheel)
+- Collision-avoidance placement to reduce node overlap
+- Device inspector (click any dot or legend entry)
+- Ferdus apartment calibration profile enabled by default
 
-## Requirements
+## Ferdus Calibration (Default)
 
-- macOS
-- `python3` (no pip dependencies)
+The default profile is tuned to avoid unrealistic long-distance spikes in apartment-scale environments.
 
-## Notes
+- `ref_rssi_1m_dbm = -49.0`
+- `path_loss_exponent = 2.7`
+- `rtt_gain_m_per_ms_pow = 3.2`
+- `rtt_exponent = 1.12`
+- `rtt_delta_cap_ms = 6.0`
+- `max_distance_m = 65.0`
 
-- This is best-effort discovery on your LAN and relies on reachable hosts + ARP visibility.
-- Some sensor snapshots can be limited by OS/hardware permissions.
-- Distance is estimated with a calibration-aware hybrid model (Wi-Fi RSSI anchor + RTT heuristic).
-- Meter-level physical ranging for all devices is not guaranteed without dedicated ranging stacks (for example FTM/UWB anchors).
-- Stop the server with `Ctrl+C`.
+You can adjust these live in the UI and re-apply defaults with `Use Ferdus Preset`.
 
-## In-app controls
-
-- `+ / Auto / -` zoom controls (mouse wheel zoom also supported)
-- Adaptive ring labels in meters (auto range fit)
-- Collision-avoidance layout to reduce overlapping device dots
-- Click any dot or legend row for full device details
-- `Ferdus` apartment preset (default) to keep estimates in realistic apartment-scale ranges
-- Calibration sliders:
-  - path-loss exponent
-  - reference RSSI at 1 meter
-  - RTT gain
-  - RTT exponent
-  - RTT delta cap
-
-## Optional flags
+## CLI Options
 
 ```bash
 ./run.sh --no-open
@@ -59,6 +53,28 @@ That command:
 ./run.sh --max-hosts 256
 ```
 
-## Open source license
+## Requirements
 
-MIT (`LICENSE`)
+- macOS
+- Python 3
+- No third-party Python dependencies
+
+## Accuracy Notes
+
+- Distances are calibrated estimates, not guaranteed true physical meters for every device.
+- RTT and RSSI can be affected by congestion, power-save behavior, and multipath.
+- Meter-level hard ranging generally requires dedicated ranging technologies (for example FTM/UWB anchors).
+
+## Privacy
+
+- Runs locally on your machine
+- No cloud dependency required for scanning or rendering
+- Uses local network/system commands only
+
+## Contributing
+
+Contributions are welcome. Start with `CONTRIBUTING.md` and open an issue before large changes.
+
+## License
+
+MIT License (`LICENSE`)
