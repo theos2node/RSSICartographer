@@ -4,7 +4,13 @@
 
 It captures available MacBook sensor/network signals (Wi-Fi, Bluetooth snapshot, battery + interface info), scans your local subnet for reachable devices, and renders a 2D radar map in the browser.
 
-## One-command run
+## One-command run (download + launch)
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos2node/RSSICartographer/main/bootstrap.sh)"
+```
+
+## One-command run (inside cloned repo)
 
 ```bash
 ./run.sh
